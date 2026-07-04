@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "seedloom"
+version = "0.1.0"
+description = "AI-powered database seeding: introspects your schema and generates realistic, referentially-valid seed data with Claude."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Your Name" }]
+dependencies = [
+    "anthropic>=0.40.0",
+    "psycopg2-binary>=2.9",
+    "click>=8.1",
+    "rich>=13.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+seedloom = "seedloom.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["seedloom*"]

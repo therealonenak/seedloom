@@ -13,6 +13,25 @@ from .models import Column, ForeignKey, Schema, Table
 
 _EXCLUDED_SCHEMAS = ("pg_catalog", "information_schema")
 
+_EXCLUDED_TABLE_NAMES = {
+    "sequelizemeta",
+    "sequelize_meta",
+    "knex_migrations",
+    "knex_migrations_lock",
+    "typeorm_metadata",
+    "migrations",
+    "schema_migrations",
+    "django_migrations",
+    "alembic_version",
+    "flyway_schema_history",
+    "prisma_migrations",
+    "ar_internal_metadata",
+    "schema_info",
+    "__efmigrationshistory",
+    "__efmigrationshistory2",
+    "__diesel_schema_migrations",
+}
+
 
 def introspect(database_url: str, schema_name: str = "public") -> Schema:
     conn = psycopg2.connect(database_url)
@@ -42,7 +61,11 @@ def _fetch_table_names(cur, schema_name: str) -> list[str]:
         """,
         (schema_name,),
     )
-    return [row["table_name"] for row in cur.fetchall()]
+    return [
+        row["table_name"]
+        for row in cur.fetchall()
+        if row["table_name"].lower() not in _EXCLUDED_TABLE_NAMES
+    ]
 
 
 def _fetch_primary_key_columns(cur, schema_name: str, table_name: str) -> set[str]:

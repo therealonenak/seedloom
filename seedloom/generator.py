@@ -1,18 +1,84 @@
-"""Generate realistic seed rows for a table using Claude.
+"""Generate realistic seed rows for a table using a pluggable LLM provider.
 
 Key design choice: referential integrity is enforced *structurally*, not by
 hoping the model behaves. Foreign-key columns are generated as a JSON Schema
-`enum` of the actual parent-row key values already inserted — Claude picks
+`enum` of the actual parent-row key values already inserted — the model picks
 from real values, it can't invent a dangling reference.
 """
 from __future__ import annotations
 
-import json
+import random
+import uuid
 from typing import Any
 
-import anthropic
-
 from .models import Column, Table
+from .providers import Provider
+
+_MEDIA_KEYWORDS = (
+    "avatar",
+    "photo",
+    "image",
+    "picture",
+    "logo",
+    "banner",
+    "thumbnail",
+    "cover",
+    "icon",
+)
+
+
+def _is_media_url_column(col: Column) -> bool:
+    if col.data_type not in ("text", "character varying", "character"):
+        return False
+    name = col.name.lower()
+    return any(k in name for k in _MEDIA_KEYWORDS)
+
+
+def _random_media_url(col: Column) -> str:
+    name = col.name.lower()
+    seed = uuid.uuid4().hex[:12]
+    if "avatar" in name or "headshot" in name or "profile" in name:
+        return f"https://i.pravatar.cc/300?u={seed}"
+    if "logo" in name or "icon" in name:
+        return f"https://picsum.photos/seed/{seed}/200/200"
+    if "banner" in name or "cover" in name:
+        return f"https://picsum.photos/seed/{seed}/1200/400"
+    return f"https://picsum.photos/seed/{seed}/600/400"
+
+
+_VIDEO_KEYWORDS = (
+    "video",
+    "mp4",
+    "clip",
+    "trailer",
+    "movie",
+    "recording",
+    "footage",
+)
+
+_SAMPLE_VIDEO_URLS = (
+    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4",
+    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
+    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4",
+    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4",
+    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4",
+    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerMeltdowns.mp4",
+    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4",
+    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/SubaruOutbackOnStreetAndDirt.mp4",
+    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4",
+)
+
+
+def _is_video_url_column(col: Column) -> bool:
+    if col.data_type not in ("text", "character varying", "character"):
+        return False
+    name = col.name.lower()
+    return any(k in name for k in _VIDEO_KEYWORDS)
+
+
+def _random_video_url() -> str:
+    return random.choice(_SAMPLE_VIDEO_URLS)
 
 _PG_TYPE_TO_JSON_SCHEMA: dict[str, dict[str, Any]] = {
     "integer": {"type": "integer"},
@@ -60,11 +126,11 @@ def build_row_schema(
 
     for col in table.columns:
         if col.is_auto_generated:
-            continue  # serial/identity/default(now())/etc — DB fills this in
+            continue
         if col.name in fk_columns:
-            pool = fk_value_pool.get(col.name) or []
+            pool = [v for v in (fk_value_pool.get(col.name) or []) if v not in (None, "")]
             if not pool:
-                continue  # can't reference rows that don't exist; leave to DB default/NULL
+                continue
             properties[col.name] = {"enum": pool}
         else:
             properties[col.name] = _column_schema(col)
@@ -78,9 +144,49 @@ def build_row_schema(
     return schema, generatable
 
 
+_NULL_LITERALS = {"null", "none", "n/a", "na", ""}
+
+
+def _sanitize_row(
+    table: Table, row: dict[str, Any], fk_value_pool: dict[str, list[Any]]
+) -> dict[str, Any]:
+    fk_columns = {fk.column for fk in table.foreign_keys}
+    cleaned: dict[str, Any] = {}
+    for key, value in row.items():
+        col = table.column(key)
+        if (
+            isinstance(value, str)
+            and value.strip().lower() in _NULL_LITERALS
+            and col
+            and col.is_nullable
+        ):
+            cleaned[key] = None
+            continue
+        if key in fk_columns:
+            pool = fk_value_pool.get(key) or []
+            if pool and value not in pool:
+                match = next((item for item in pool if str(item) == str(value)), None)
+                if match is not None:
+                    value = match
+                elif isinstance(value, int) and 1 <= value <= len(pool):
+                    value = pool[value - 1]
+                elif isinstance(value, int) and 0 <= value < len(pool):
+                    value = pool[value]
+                else:
+                    value = random.choice(pool)
+        elif (
+            isinstance(value, str)
+            and col
+            and col.char_max_length
+            and len(value) > col.char_max_length
+        ):
+            value = value[: col.char_max_length]
+        cleaned[key] = value
+    return cleaned
+
+
 def generate_rows(
-    client: anthropic.Anthropic,
-    model: str,
+    provider: Provider,
     table: Table,
     count: int,
     fk_value_pool: dict[str, list[Any]],
@@ -88,7 +194,7 @@ def generate_rows(
 ) -> list[dict[str, Any]]:
     row_schema, columns = build_row_schema(table, fk_value_pool)
     if not columns:
-        return [{}]  # table has nothing generatable (e.g. pure auto-increment join row)
+        return [{}]
 
     tool_schema = {
         "type": "object",
@@ -116,23 +222,14 @@ def generate_rows(
         "Call the generate_rows tool with the data."
     )
 
-    response = client.messages.create(
-        model=model,
-        max_tokens=4096,
-        system=system,
-        messages=[{"role": "user", "content": user_prompt}],
-        tools=[
-            {
-                "name": "generate_rows",
-                "description": "Submit the generated seed rows for this table.",
-                "input_schema": tool_schema,
-            }
-        ],
-        tool_choice={"type": "tool", "name": "generate_rows"},
-    )
-
-    for block in response.content:
-        if block.type == "tool_use" and block.name == "generate_rows":
-            return block.input.get("rows", [])
-
-    raise RuntimeError(f"Model did not return a tool_use block for table {table.name}")
+    rows = provider.generate(system, user_prompt, tool_schema, tool_name="generate_rows")
+    if not rows:
+        raise RuntimeError(f"Provider did not return any rows for table {table.name}")
+    for row in rows:
+        for c in columns:
+            col = table.column(c)
+            if col and _is_media_url_column(col):
+                row[c] = _random_media_url(col)
+            elif col and _is_video_url_column(col):
+                row[c] = _random_video_url()
+    return [_sanitize_row(table, row, fk_value_pool) for row in rows]

@@ -108,6 +108,43 @@ default width (currently 256).
 No separate install extra is needed - this works with `pip install seedloom`
 plus whichever provider extra you're already using.
 
+## MCP server
+
+seedloom also ships as an MCP server, so AI coding agents (Claude Code,
+Cursor, Windsurf, or any other MCP-capable client) can introspect a schema
+and seed a database directly, without shelling out to the CLI.
+
+```bash
+pip install seedloom[mcp]   # or seedloom[all]
+```
+
+Add it to your client's MCP config (communicates over stdio):
+
+```json
+{
+  "mcpServers": {
+    "seedloom": {
+      "command": "seedloom-mcp"
+    }
+  }
+}
+```
+
+Exposes three tools:
+
+| Tool | Purpose |
+|---|---|
+| `list_providers` | Lists the LLM providers seedloom supports |
+| `introspect_schema(database_url)` | Read-only schema introspection - tables, columns, FKs, enums, pgvector dimensions |
+| `seed(database_url, rows, tables, provider, model, dry_run)` | Full generate + insert pipeline, same guarantees as `seedloom run` |
+
+Provider API keys are read from **this server's environment only**
+(`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, etc., or a `.env` file in its working
+directory) - they're never accepted as a tool argument, so a secret never
+has to pass through the calling agent's context or logs. Set
+`SEEDLOOM_PROVIDER`/`SEEDLOOM_MODEL` in that same environment to change the
+default; `provider`/`model` tool arguments override it per call.
+
 ## Providers
 
 Set `SEEDLOOM_PROVIDER` (or pass `--provider`) plus the matching API key env var.

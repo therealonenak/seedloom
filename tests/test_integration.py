@@ -13,12 +13,14 @@ class FakeCursor:
         self.store = store
         self.pk_seq = pk_seq
         self._last_pk = None
+        self.rowcount = 0
 
     def execute(self, query, params):
         table_name = query.split('"')[1]
         self._last_pk = self.pk_seq[table_name]
         self.pk_seq[table_name] += 1
         self.store.setdefault(table_name, []).append(dict(params))
+        self.rowcount = 1  # simulate a successful insert (never conflicts in this fake)
 
     def fetchone(self):
         return (self._last_pk,)
@@ -88,6 +90,11 @@ def test_end_to_end_seed_flow_links_foreign_keys():
     conn = FakeConn()
     fk_pools: dict[str, dict[str, list]] = {}
 
+    referenced_columns: dict[str, set[str]] = {}
+    for t in schema.tables.values():
+        for fk in t.foreign_keys:
+            referenced_columns.setdefault(fk.ref_table, set()).add(fk.ref_column)
+
     for table_name in order:
         table = schema.tables[table_name]
         fk_value_pool = {}
@@ -96,11 +103,12 @@ def test_end_to_end_seed_flow_links_foreign_keys():
             if pool:
                 fk_value_pool[fk.column] = pool
 
+        needed_columns = sorted(referenced_columns.get(table_name, set()))
         generated = generate_rows(fake_provider, table, 2, fk_value_pool)
-        pk_values = insert_rows(conn, table, generated)
-        pk_cols = table.primary_key_columns
-        if len(pk_cols) == 1 and pk_values:
-            fk_pools.setdefault(table_name, {})[pk_cols[0]] = pk_values
+        inserted_values = insert_rows(conn, table, generated, needed_columns)
+        for col, vals in inserted_values.items():
+            if vals:
+                fk_pools.setdefault(table_name, {})[col] = vals
 
     # users got PKs 1, 2 assigned
     assert fk_pools["users"]["id"] == [1, 2]

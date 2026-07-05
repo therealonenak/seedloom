@@ -27,11 +27,13 @@ anthropic = ["anthropic>=0.40.0"]
 openai = ["openai>=1.50.0"]
 gemini = ["google-genai>=0.3.0"]
 ollama = ["requests>=2.31"]
-all = ["seedloom[anthropic,openai,gemini,ollama]"]
+mcp = ["mcp>=1.2.0"]
+all = ["seedloom[anthropic,openai,gemini,ollama,mcp]"]
 dev = ["pytest>=8.0", "seedloom[all]"]
 
 [project.scripts]
 seedloom = "seedloom.cli:main"
+seedloom-mcp = "seedloom.mcp_server:main"
 
 [tool.setuptools.packages.find]
 include = ["seedloom*"]

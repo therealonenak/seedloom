@@ -80,6 +80,29 @@ def _is_video_url_column(col: Column) -> bool:
 def _random_video_url() -> str:
     return random.choice(_SAMPLE_VIDEO_URLS)
 
+
+_DEFAULT_VECTOR_DIM = 256
+
+
+def _is_vector_column(col: Column) -> bool:
+    return col.data_type in ("vector", "halfvec", "sparsevec")
+
+
+def _random_vector_literal(dim: int | None) -> str:
+    """A random unit-length vector in pgvector's text input format, e.g. '[0.12,-0.4,...]'.
+
+    Real embeddings aren't uniformly random, but a normalized random vector is a
+    reasonable stand-in for exercising vector columns/indexes/similarity queries
+    in seed data - asking an LLM to hand-write hundreds of floats would be slow,
+    expensive, and no more meaningful. Columns declared without a fixed dimension
+    (plain `vector` rather than `vector(384)`) fall back to a default width.
+    """
+    dim = dim or _DEFAULT_VECTOR_DIM
+    raw = [random.gauss(0, 1) for _ in range(dim)]
+    norm = sum(v * v for v in raw) ** 0.5 or 1.0
+    values = [v / norm for v in raw]
+    return "[" + ",".join(f"{v:.6f}" for v in values) + "]"
+
 _PG_TYPE_TO_JSON_SCHEMA: dict[str, dict[str, Any]] = {
     "integer": {"type": "integer"},
     "bigint": {"type": "integer"},
@@ -126,6 +149,8 @@ def build_row_schema(
 
     for col in table.columns:
         if col.is_auto_generated:
+            continue
+        if _is_vector_column(col):
             continue
         if col.name in fk_columns:
             pool = [v for v in (fk_value_pool.get(col.name) or []) if v not in (None, "")]
@@ -225,6 +250,7 @@ def generate_rows(
     rows = provider.generate(system, user_prompt, tool_schema, tool_name="generate_rows")
     if not rows:
         raise RuntimeError(f"Provider did not return any rows for table {table.name}")
+    vector_columns = [c for c in table.columns if _is_vector_column(c)]
     for row in rows:
         for c in columns:
             col = table.column(c)
@@ -232,4 +258,6 @@ def generate_rows(
                 row[c] = _random_media_url(col)
             elif col and _is_video_url_column(col):
                 row[c] = _random_video_url()
+        for vcol in vector_columns:
+            row[vcol.name] = _random_vector_literal(vcol.vector_dim)
     return [_sanitize_row(table, row, fk_value_pool) for row in rows]

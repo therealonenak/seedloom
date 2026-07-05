@@ -116,10 +116,14 @@ def _fetch_columns(
         enum_values = None
         if row["data_type"] == "USER-DEFINED":
             enum_values = _fetch_enum_values(cur, row["udt_name"])
+        is_vector_type = row["udt_name"] in ("vector", "halfvec", "sparsevec")
+        vector_dim = None
+        if is_vector_type:
+            vector_dim = _fetch_vector_dim(cur, schema_name, table_name, row["column_name"])
         columns.append(
             Column(
                 name=row["column_name"],
-                data_type=row["udt_name"] if enum_values else row["data_type"],
+                data_type=row["udt_name"] if (enum_values or is_vector_type) else row["data_type"],
                 is_nullable=row["is_nullable"] == "YES",
                 is_primary_key=row["column_name"] in pk_cols,
                 is_unique=row["column_name"] in unique_cols,
@@ -127,9 +131,30 @@ def _fetch_columns(
                 char_max_length=row["character_maximum_length"],
                 numeric_precision=row["numeric_precision"],
                 enum_values=enum_values,
+                vector_dim=vector_dim,
             )
         )
     return columns
+
+
+def _fetch_vector_dim(cur, schema_name: str, table_name: str, column_name: str) -> int | None:
+    """pgvector stores the declared dimension of vector(N)/halfvec(N)/sparsevec(N)
+    directly in atttypmod (no -4 offset like varchar(N)). -1 means unconstrained."""
+    cur.execute(
+        """
+        SELECT a.atttypmod
+        FROM pg_attribute a
+        JOIN pg_class c ON a.attrelid = c.oid
+        JOIN pg_namespace n ON c.relnamespace = n.oid
+        WHERE n.nspname = %s AND c.relname = %s AND a.attname = %s
+        """,
+        (schema_name, table_name, column_name),
+    )
+    row = cur.fetchone()
+    if not row:
+        return None
+    typmod = row["atttypmod"]
+    return typmod if typmod and typmod > 0 else None
 
 
 def _fetch_enum_values(cur, type_name: str) -> list[str] | None:

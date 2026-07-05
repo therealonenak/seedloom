@@ -72,3 +72,55 @@ def test_required_excludes_nullable_columns():
     schema, _ = build_row_schema(table, fk_value_pool={})
     assert "name" in schema["required"]
     assert "middle_name" not in schema["required"]
+
+
+def test_vector_column_excluded_from_llm_schema():
+    table = Table(
+        name="documents",
+        columns=[
+            Column("id", "integer", False, is_primary_key=True, default="nextval('x')"),
+            Column("title", "text", False),
+            Column("embedding", "vector", True, vector_dim=384),
+        ],
+    )
+    schema, generatable = build_row_schema(table, fk_value_pool={})
+    assert "embedding" not in generatable
+    assert "embedding" not in schema["properties"]
+    assert "title" in generatable
+
+
+def test_generate_rows_fills_vector_column_locally():
+    from seedloom.generator import generate_rows
+    from seedloom.providers.base import Provider
+
+    class FakeProvider(Provider):
+        def generate(self, system, user_prompt, schema, tool_name="generate_rows"):
+            assert "embedding" not in schema["properties"]["rows"]["items"]["properties"]
+            return [{"title": "Doc one"}, {"title": "Doc two"}]
+
+    table = Table(
+        name="documents",
+        columns=[
+            Column("id", "integer", False, is_primary_key=True, default="nextval('x')"),
+            Column("title", "text", False),
+            Column("embedding", "vector", True, vector_dim=8),
+        ],
+    )
+    rows = generate_rows(FakeProvider(), table, 2, fk_value_pool={})
+    assert len(rows) == 2
+    for row in rows:
+        assert row["title"] in ("Doc one", "Doc two")
+        vec_str = row["embedding"]
+        assert vec_str.startswith("[") and vec_str.endswith("]")
+        values = [float(v) for v in vec_str[1:-1].split(",")]
+        assert len(values) == 8
+        norm = sum(v * v for v in values) ** 0.5
+        assert abs(norm - 1.0) < 1e-6
+
+
+def test_vector_column_without_declared_dim_uses_default_width():
+    from seedloom.generator import _random_vector_literal, _DEFAULT_VECTOR_DIM
+
+    literal = _random_vector_literal(None)
+    values = literal[1:-1].split(",")
+    assert len(values) == _DEFAULT_VECTOR_DIM

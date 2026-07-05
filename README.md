@@ -32,6 +32,10 @@ your schema's relationships. seedloom:
 - Auto-fills image/avatar/logo/banner/video columns with real, working CDN URLs
   (picsum.photos, i.pravatar.cc, sample .mp4s) instead of letting the model
   invent broken links
+- **pgvector-aware**: `vector`/`halfvec`/`sparsevec` columns are detected at
+  introspection time (including their declared dimension) and filled with
+  real, correctly-sized, unit-length random vectors - generated locally, not
+  by asking an LLM to hand-write hundreds of floats
 - Automatically excludes ORM/migration bookkeeping tables (`SequelizeMeta`,
   `knex_migrations`, `alembic_version`, `django_migrations`,
   `__EFMigrationsHistory`, etc.) from introspection - they're never seeded
@@ -86,6 +90,23 @@ seedloom run --provider ollama --model llama3.1 --rows 20
 ```
 
 Try it against the example schema in `examples/schema.sql` on a scratch database.
+
+## pgvector
+
+If the [`pgvector`](https://github.com/pgvector/pgvector) extension is
+installed and a table has a `vector`, `halfvec`, or `sparsevec` column,
+seedloom detects it during `seedloom init` (along with its declared
+dimension, e.g. `vector(384)`) and fills it with a random, unit-length
+vector at seed time - generated locally, not by the LLM. This is enough to
+exercise vector indexes and similarity queries (`ORDER BY embedding <-> ...`)
+against seed data, but the vectors carry no real semantic meaning - they
+aren't embeddings of the row's actual content.
+
+Columns declared as a plain `vector` with no fixed dimension fall back to a
+default width (currently 256).
+
+No separate install extra is needed - this works with `pip install seedloom`
+plus whichever provider extra you're already using.
 
 ## Providers
 

@@ -27,6 +27,7 @@ class Column:
     char_max_length: Optional[int] = None
     numeric_precision: Optional[int] = None
     enum_values: Optional[list[str]] = None
+    vector_dim: Optional[int] = None
 
     @property
     def is_auto_generated(self) -> bool:
@@ -72,6 +73,7 @@ class Schema:
                         "char_max_length": c.char_max_length,
                         "numeric_precision": c.numeric_precision,
                         "enum_values": c.enum_values,
+                        "vector_dim": c.vector_dim,
                     }
                     for c in t.columns
                 ],

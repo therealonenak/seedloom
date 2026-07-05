@@ -61,7 +61,7 @@ def call_with_rate_limit_retry(
             if _is_daily_quota_error(exc):
                 raise ProviderError(
                     "Daily API quota exhausted for this provider/model. Retrying won't help "
-                    "until the quota resets — switch providers/models (--provider/--model) or "
+                    "until the quota resets - switch providers/models (--provider/--model) or "
                     "upgrade your plan, then re-run 'seedloom run' (already-seeded tables are "
                     "skipped automatically)."
                 ) from exc

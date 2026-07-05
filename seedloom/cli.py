@@ -19,7 +19,7 @@ console = Console()
 
 @click.group()
 def main() -> None:
-    """seedloom — AI-powered database seeding.
+    """seedloom - AI-powered database seeding.
 
     Introspects your Postgres schema and uses Claude to generate realistic,
     referentially-valid seed data.

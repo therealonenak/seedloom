@@ -135,7 +135,7 @@ def seed_database(
                 if existing_count >= rows:
                     if on_progress:
                         on_progress(
-                            f"Skipping '{table_name}' — already has {existing_count} "
+                            f"Skipping '{table_name}' - already has {existing_count} "
                             f"row(s) (>= {rows} requested)."
                         )
                     result.tables.append(

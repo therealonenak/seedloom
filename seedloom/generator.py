@@ -2,7 +2,7 @@
 
 Key design choice: referential integrity is enforced *structurally*, not by
 hoping the model behaves. Foreign-key columns are generated as a JSON Schema
-`enum` of the actual parent-row key values already inserted — the model picks
+`enum` of the actual parent-row key values already inserted - the model picks
 from real values, it can't invent a dangling reference.
 """
 from __future__ import annotations
@@ -140,7 +140,7 @@ def build_row_schema(
 
     fk_value_pool maps column_name -> already-inserted parent key values,
     for columns that are foreign keys. Columns with an empty pool (parent
-    table not seeded yet / no rows) are skipped — caller should seed in
+    table not seeded yet / no rows) are skipped - caller should seed in
     dependency order so this shouldn't happen for non-nullable FKs.
     """
     properties: dict[str, Any] = {}

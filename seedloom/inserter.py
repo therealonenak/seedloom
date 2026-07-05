@@ -1,6 +1,6 @@
 """Insert generated rows into Postgres, returning values for whichever
 columns other tables' foreign keys point at, so downstream tables always
-have a real, valid pool to pick from — not just the primary key."""
+have a real, valid pool to pick from - not just the primary key."""
 from __future__ import annotations
 
 from typing import Any
@@ -28,7 +28,7 @@ def table_row_count(conn, table_name: str) -> int:
 
 def existing_column_values(conn, table_name: str, columns: list[str]) -> dict[str, list[Any]]:
     """Fetch current values for the given columns (e.g. columns other tables'
-    foreign keys reference — which may or may not be the primary key)."""
+    foreign keys reference - which may or may not be the primary key)."""
     if not columns:
         return {}
     col_list = ", ".join(f'"{c}"' for c in columns)

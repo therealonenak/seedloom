@@ -22,7 +22,7 @@ _PROVIDER_KEY_ENV: dict[str, str] = {
 
 
 def _load_dotenv(path: Path = Path(".env")) -> None:
-    """Minimal .env loader — avoids pulling in python-dotenv as a dependency."""
+    """Minimal .env loader - avoids pulling in python-dotenv as a dependency."""
     if not path.exists():
         return
     for line in path.read_text().splitlines():

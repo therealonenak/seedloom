@@ -3,7 +3,7 @@
 A table depends on every table its foreign keys point to (excluding self-references,
 which are seeded as NULL-first-then-update or just left nullable). Raises on a
 genuine cycle between two *different* tables, since that can't be seeded without
-deferred constraints (out of scope for v1 — surfaced as a clear error instead of
+deferred constraints (out of scope for v1 - surfaced as a clear error instead of
 a silent wrong answer).
 """
 from __future__ import annotations
@@ -34,7 +34,7 @@ def resolve_seed_order(schema: Schema) -> list[str]:
         if name in in_progress:
             raise CyclicDependencyError(
                 f"Cyclic foreign key dependency detected: {' -> '.join(path + [name])}. "
-                "seedloom can't resolve insert order for mutually-dependent tables in v1 — "
+                "seedloom can't resolve insert order for mutually-dependent tables in v1 - "
                 "consider making one of the FKs nullable and seeding it in a second pass."
             )
         in_progress.add(name)

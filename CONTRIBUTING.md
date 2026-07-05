@@ -37,7 +37,7 @@ Please open a GitHub issue with:
 
 ## Reporting security issues
 
-Please see [SECURITY.md](./SECURITY.md) — do not open a public issue for
+Please see [SECURITY.md](./SECURITY.md) - do not open a public issue for
 security-sensitive reports.
 
 ## Code of conduct

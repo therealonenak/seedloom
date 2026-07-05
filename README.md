@@ -40,7 +40,7 @@ pip install seedloom[anthropic]   # or [openai], [gemini], [ollama], [all]
 Or from source:
 
 ```bash
-git clone https://github.com/yourname/seedloom
+git clone https://github.com/therealonenak/seedloom
 cd seedloom
 pip install -e ".[all]"
 ```

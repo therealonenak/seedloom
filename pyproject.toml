@@ -5,16 +5,21 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "seedloom"
 version = "0.1.0"
-description = "AI-powered database seeding: introspects your schema and generates realistic, referentially-valid seed data with Claude."
+description = "AI-powered database seeding: introspects your schema and generates realistic, referentially-valid seed data with Claude, OpenAI, Gemini, or local models."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
-authors = [{ name = "Your Name" }]
+authors = [{ name = "Naeem Ahmed", email = "freelancer.nak@gmail.com" }]
 dependencies = [
     "psycopg2-binary>=2.9",
     "click>=8.1",
     "rich>=13.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/therealonenak/seedloom"
+Repository = "https://github.com/therealonenak/seedloom"
+Issues = "https://github.com/therealonenak/seedloom/issues"
 
 [project.optional-dependencies]
 anthropic = ["anthropic>=0.40.0"]

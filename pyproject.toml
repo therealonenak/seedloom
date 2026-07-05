@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "seedloom"
-version = "0.1.0"
+version = "0.1.1"
 description = "AI-powered database seeding: introspects your schema and generates realistic, referentially-valid seed data with Claude, OpenAI, Gemini, or local models."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -17,7 +17,7 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/therealonenak/seedloom"
+Homepage = "https://seedloom.vercel.app/"
 Repository = "https://github.com/therealonenak/seedloom"
 Issues = "https://github.com/therealonenak/seedloom/issues"
 

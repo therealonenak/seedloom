@@ -1,3 +1,9 @@
+<p align="center">
+  <img src="https://raw.githubusercontent.com/therealonenak/seedloom/main/assets/logo.svg" width="320" alt="seedloom logo">
+</p>
+
+<p align="center">Seed your database, automated.</p>
+
 # seedloom
 
 AI-powered database seeding. `seedloom` connects to your PostgreSQL database,

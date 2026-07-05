@@ -1,12 +1,11 @@
 """End-to-end flow test: introspection-shaped schema -> ordering -> generation
 (mocked LLM) -> insertion (fake in-memory DB), verifying FK values seeded for
 'users' actually get used when generating 'orders'."""
-from unittest.mock import MagicMock
-
 from seedloom.generator import generate_rows
 from seedloom.graph import resolve_seed_order
 from seedloom.inserter import insert_rows
 from seedloom.models import Column, ForeignKey, Schema, Table
+from seedloom.providers.base import Provider
 
 
 class FakeCursor:
@@ -43,14 +42,14 @@ class FakeConn:
         pass
 
 
-def make_tool_response(rows):
-    block = MagicMock()
-    block.type = "tool_use"
-    block.name = "generate_rows"
-    block.input = {"rows": rows}
-    resp = MagicMock()
-    resp.content = [block]
-    return resp
+class FakeProvider(Provider):
+    def __init__(self, responses):
+        self.responses = list(responses)
+        self.calls = []
+
+    def generate(self, system, user_prompt, schema, tool_name="generate_rows"):
+        self.calls.append({"system": system, "user_prompt": user_prompt, "schema": schema})
+        return self.responses.pop(0)
 
 
 def test_end_to_end_seed_flow_links_foreign_keys():
@@ -79,11 +78,12 @@ def test_end_to_end_seed_flow_links_foreign_keys():
     order = resolve_seed_order(schema)
     assert order == ["users", "orders"]
 
-    fake_client = MagicMock()
-    fake_client.messages.create.side_effect = [
-        make_tool_response([{"name": "Alice"}, {"name": "Bob"}]),
-        make_tool_response([{"user_id": 1, "total": 42.5}, {"user_id": 2, "total": 10.0}]),
-    ]
+    fake_provider = FakeProvider(
+        [
+            [{"name": "Alice"}, {"name": "Bob"}],
+            [{"user_id": 1, "total": 42.5}, {"user_id": 2, "total": 10.0}],
+        ]
+    )
 
     conn = FakeConn()
     fk_pools: dict[str, dict[str, list]] = {}
@@ -96,7 +96,7 @@ def test_end_to_end_seed_flow_links_foreign_keys():
             if pool:
                 fk_value_pool[fk.column] = pool
 
-        generated = generate_rows(fake_client, "claude-sonnet-4-6", table, 2, fk_value_pool)
+        generated = generate_rows(fake_provider, table, 2, fk_value_pool)
         pk_values = insert_rows(conn, table, generated)
         pk_cols = table.primary_key_columns
         if len(pk_cols) == 1 and pk_values:
@@ -109,6 +109,5 @@ def test_end_to_end_seed_flow_links_foreign_keys():
     assert conn.store["orders"][1]["user_id"] == 2
 
     # verify the second LLM call's schema actually constrained user_id to the real pool
-    second_call_kwargs = fake_client.messages.create.call_args_list[1].kwargs
-    order_row_schema = second_call_kwargs["tools"][0]["input_schema"]["properties"]["rows"]["items"]
+    order_row_schema = fake_provider.calls[1]["schema"]["properties"]["rows"]["items"]
     assert order_row_schema["properties"]["user_id"] == {"enum": [1, 2]}

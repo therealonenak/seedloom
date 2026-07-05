@@ -4,7 +4,6 @@ import json
 import sys
 from pathlib import Path
 
-import anthropic
 import click
 import psycopg2
 from rich.console import Console
@@ -13,9 +12,10 @@ from rich.table import Table as RichTable
 from .config import Config
 from .generator import generate_rows
 from .graph import CyclicDependencyError, resolve_seed_order
-from .inserter import insert_rows
+from .inserter import existing_column_values, insert_rows, table_row_count
 from .introspect import introspect
 from .models import Schema
+from .providers import ProviderError, SUPPORTED_PROVIDERS, get_provider
 
 console = Console()
 SCHEMA_CACHE = Path(".seedloom_schema.json")
@@ -34,7 +34,7 @@ def main() -> None:
 def init() -> None:
     """Connect to the database, introspect the schema, and cache it locally."""
     try:
-        config = Config.load()
+        config = Config.load(require_provider=False)
     except EnvironmentError as e:
         console.print(f"[red]{e}[/red]")
         sys.exit(1)
@@ -67,10 +67,26 @@ def init() -> None:
 @click.option("--rows", default=10, show_default=True, help="Rows to generate per table.")
 @click.option("--tables", default=None, help="Comma-separated subset of tables to seed (default: all).")
 @click.option("--dry-run", is_flag=True, help="Generate data and print it without inserting.")
-def run(rows: int, tables: str | None, dry_run: bool) -> None:
+@click.option(
+    "--provider",
+    default=None,
+    help=f"Override provider from config. Supported: {', '.join(SUPPORTED_PROVIDERS)}.",
+)
+@click.option("--model", default=None, help="Override model from config.")
+@click.option("--base-url", default=None, help="Override base URL (openai_compatible or self-hosted endpoints).")
+@click.option("--host", default=None, help="Override Ollama host (default: http://localhost:11434).")
+def run(
+    rows: int,
+    tables: str | None,
+    dry_run: bool,
+    provider: str | None,
+    model: str | None,
+    base_url: str | None,
+    host: str | None,
+) -> None:
     """Generate and insert seed data, respecting foreign key order."""
     try:
-        config = Config.load()
+        config = Config.load(provider_override=provider or "")
     except EnvironmentError as e:
         console.print(f"[red]{e}[/red]")
         sys.exit(1)
@@ -91,15 +107,59 @@ def run(rows: int, tables: str | None, dry_run: bool) -> None:
         wanted = set(t.strip() for t in tables.split(","))
         order = [t for t in order if t in wanted]
 
-    client = anthropic.Anthropic(api_key=config.anthropic_api_key)
+    try:
+        active_provider = get_provider(
+            config.provider,
+            api_key=config.api_key,
+            model=model or config.model,
+            base_url=base_url or config.base_url,
+            host=host or config.host,
+        )
+    except ProviderError as e:
+        console.print(f"[red]{e}[/red]")
+        sys.exit(1)
+
+    console.print(f"[cyan]Using provider: {config.provider}[/cyan]")
     conn = None if dry_run else psycopg2.connect(config.database_url)
 
     fk_pools: dict[str, dict[str, list]] = {}  # table -> column -> values
 
+    referenced_columns: dict[str, set[str]] = {}
+    for t in schema.tables.values():
+        for fk in t.foreign_keys:
+            referenced_columns.setdefault(fk.ref_table, set()).add(fk.ref_column)
+
     try:
         for table_name in order:
             table = schema.tables[table_name]
-            console.print(f"[cyan]Generating {rows} rows for '{table_name}'...[/cyan]")
+            needed_columns = sorted(referenced_columns.get(table_name, set()))
+
+            to_generate = rows
+            if conn is not None:
+                existing_count = table_row_count(conn, table_name)
+                if existing_count > 0 and needed_columns:
+                    existing_values = existing_column_values(conn, table_name, needed_columns)
+                    for col, vals in existing_values.items():
+                        if vals:
+                            fk_pools.setdefault(table_name, {})[col] = vals
+
+                if existing_count >= rows:
+                    console.print(
+                        f"[yellow]Skipping '{table_name}' — already has {existing_count} row(s) "
+                        f"(>= {rows} requested).[/yellow]"
+                    )
+                    continue
+
+                to_generate = rows - existing_count
+                if existing_count > 0:
+                    console.print(
+                        f"[cyan]'{table_name}' has {existing_count} row(s); generating "
+                        f"{to_generate} more to reach {rows}...[/cyan]"
+                    )
+                else:
+                    console.print(f"[cyan]Generating {to_generate} rows for '{table_name}'...[/cyan]")
+            else:
+                console.print(f"[cyan]Generating {to_generate} rows for '{table_name}'...[/cyan]")
 
             fk_value_pool: dict[str, list] = {}
             for fk in table.foreign_keys:
@@ -107,16 +167,21 @@ def run(rows: int, tables: str | None, dry_run: bool) -> None:
                 if parent_pool:
                     fk_value_pool[fk.column] = parent_pool
 
-            generated = generate_rows(client, config.model, table, rows, fk_value_pool)
+            try:
+                generated = generate_rows(active_provider, table, to_generate, fk_value_pool)
+            except ProviderError as e:
+                console.print(f"[red]{e}[/red]")
+                sys.exit(1)
 
             if dry_run:
                 console.print(generated)
                 continue
 
-            pk_values = insert_rows(conn, table, generated)
-            pk_cols = table.primary_key_columns
-            if len(pk_cols) == 1 and pk_values:
-                fk_pools.setdefault(table_name, {})[pk_cols[0]] = pk_values
+            inserted_values = insert_rows(conn, table, generated, needed_columns)
+            for col, vals in inserted_values.items():
+                if vals:
+                    fk_pools.setdefault(table_name, {}).setdefault(col, [])
+                    fk_pools[table_name][col].extend(vals)
 
             console.print(f"[green]Inserted {len(generated)} rows into '{table_name}'.[/green]")
     finally:
